@@ -2,7 +2,6 @@
 // Shawn D'Alimonte
 
 #include <EEPROM.h>
-
 #include <Time.h>
 #include <TimeLib.h>
 #include <Wire.h>
@@ -11,28 +10,38 @@
 
 String Buffer; // Serial Command Buffer
 
+// Address of I2C 7 segment display
 const int DISP_ADDR = 0x71;
 
-const int DEBUG_PIN = 23;
-const int R_PIN = 5;
-const int G_PIN = 4;
-const int B_PIN = 3;
-const int LED_PIN = 13;
+// Pin assignments
+const int DEBUG_PIN = 23;  // Not used
+const int R_PIN = 5;       // PWM for Red LEDs HI==LEDs on
+const int G_PIN = 4;	   // PWM for Green LEDs HI==LEDs on
+const int B_PIN = 3;       // PWM for Blue LEDs HI==LEDs on
+const int LED_PIN = 13;    // On Board LED for debug use HI==LED on
 
-int r, g, b;
+int r, g, b;  // Current PWM value for LEDs (0-16383)
 
-time_t alarm_time;
-time_t ramp_len = 15 * 60;
-time_t alarm_len = 60 * 60;
+time_t alarm_time;          // Clock time to start ramp up of LEDs
+time_t ramp_len = 15 * 60;  // Length of ramp up (Default 15 minutes)
+time_t alarm_len = 60 * 60; // How long LEDs stay on (Default 1 hour)
 
+// Setup
 void setup() {
+	// Configure serial port for menu 
   Serial.begin(9600);
-  //while (!Serial) ; // wait for serial
   delay(200);
+
+  // I2C for display
   Wire.begin();
+
+  // RTC Setup 
+  // Needs RTC crystal and battery connected as in Teensy documentation
   setSyncProvider(getTeensy3Time);
   setTime(getTeensy3Time());
   setSyncInterval(60);
+  
+  // Configure pins
   digitalWrite(R_PIN, LOW);
   digitalWrite(G_PIN, LOW);
   digitalWrite(B_PIN, LOW);
@@ -42,6 +51,8 @@ void setup() {
   pinMode(B_PIN, OUTPUT);
   pinMode(DEBUG_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
+  
+  // Configure PWM
   analogWriteResolution(14);
   analogWriteFrequency(R_PIN, 1464.843);  // Ideal value for 14 bit with 24MHz clock
   analogWriteFrequency(R_PIN, 1464.843);
@@ -51,28 +62,37 @@ void setup() {
   analogWrite(B_PIN, 0);
   r = 0; b = 0; g = 0;
 
+  // Get alarm parameters from NVRAM
   alarm_time = LoadAlarm();
   alarm_len = ReadNVRAM32(16);
   ramp_len = ReadNVRAM32(24);
 
+  // Print Banner
   Serial.println("Gentle Wake");
   Serial.println("-----------");
   Serial.println("Type 'help' for commands");
   Serial.print("> ");
 }
 
+// Main Loop
 void loop() {
-  //   Serial.println(Serial.available());
+  
+  // Check for data from serial port.  If so receive and parse the charcter
   if (Serial.available() > 0) {
     parseChar();
   }
-  if (millis() % 500 == 0) { // Update display twice a second
+  
+  // Update the display and LEDs every 500 ms
+  if (millis() % 500 == 0) {
     DisplayTime();
     UpdateLEDS();
     CheckAlarm();
   }
 }
 
+// Receive a character from the serial port
+// Update the buffer, including handling BS and DEL
+// When newline is received call parseBuffer to execurte the command
 void parseChar(void) {
   int c = Serial.read();
   if (isprint(c)) {
@@ -89,6 +109,7 @@ void parseChar(void) {
   }
 }
 
+// Parse a buffer and execute the command 
 void parseBuffer(void) {
   Serial.println();
   if (Buffer.startsWith("set ")) {
@@ -142,10 +163,13 @@ void parseBuffer(void) {
   Buffer = "";
 }
 
+// Read tiem from Teensy RTC
 time_t getTeensy3Time() {
   return Teensy3Clock.get();
 }
 
+// Update the LED PWM from the globals r, g and b
+// Doesn't update if there is no PWM change to avoid flickering
 void UpdateLEDS(void) {
   static int old_r, old_g, old_b;
   if (r != old_r) {
@@ -162,6 +186,8 @@ void UpdateLEDS(void) {
   }
 }
 
+// Display the current time on the I2C display
+// Blinks the display colon every other second
 void DisplayTime(void) {
   int h10, h, colon, m10, m;
   h10 = hour() / 10;
@@ -178,10 +204,11 @@ void DisplayTime(void) {
   Wire.write(m);
   Wire.write(0x77); Wire.write(colon ? 0x10 : 0x00);
   Wire.endTransmission(1);
-
-  //digitalWrite(LED_PIN, colon);
 }
 
+// Set the display brightness
+// The display remembers this on its own, so it only needs to be
+// called when the brightness is changed
 void DisplayBright(int b) {
   if ((b < 0) || (b > 255)) {
     Serial.println("Invalid Brightness (0 - 255)");
@@ -192,6 +219,8 @@ void DisplayBright(int b) {
   Wire.endTransmission(1);
 }
 
+// Parse a string in the format y/m/d h:m:s
+// Convert it to a time_t and set it as the current time
 void TimeSet(String t) {
   int pos = 0;
   int lpos;
@@ -243,19 +272,19 @@ void TimeSet(String t) {
   }
 
   setTime(h, m , s, d, mn, y);
-  //RTC.set(now());
   Teensy3Clock.set(now());
   Serial.println("Time Set");
 }
 
+// Display the current time
 void TimeRead(void) {
   char buf[50];
   sprintf(buf, "Time: % d / % d / % d % d: % d: % d\n", year(), month(), day(), hour(), minute(), second());
   Serial.println(buf);
 }
-// Handle a Character from the serial port
 
-
+// Parse a string in the format of h:m:s
+// Convert to a time_t and save as the alarm time
 void AlarmSet(String t) {
   int pos = 0;
   int lpos;
@@ -264,15 +293,9 @@ void AlarmSet(String t) {
 
   Serial.println(t);
 
-  //  pos = t.indexOf("/");
-  tm.Year = 0; //t.substring(0, pos).toInt() - 1970;
-  //  lpos = pos;
-  //  pos = t.indexOf("/", lpos + 1);
-  tm.Month = 1;//t.substring(lpos + 1, pos).toInt();
-  //  lpos = pos;
-  //  pos = t.indexOf(" ", lpos + 1);
-  tm.Day = 1;//t.substring(lpos + 1, pos).toInt();
-  //  lpos = pos;
+  tm.Year = 0; // Date is not used for alarm
+  tm.Month = 1
+  tm.Day = 1;
   pos = t.indexOf(":");
   tm.Hour = t.substring(0, pos).toInt();
   lpos = pos;
@@ -313,13 +336,13 @@ void AlarmSet(String t) {
   Serial.println("Alarm Set");
 }
 
+// Display the current alarm setting
 void AlarmRead(void) {
   char buf[50];
   sprintf(buf, "Alarm: % d / % d / % d % d: % d: % d\n", year(alarm_time), month(alarm_time), day(alarm_time), hour(alarm_time), minute(alarm_time), second(alarm_time));
   Serial.println(buf);
   Serial.print("Len: "); Serial.print(alarm_len); Serial.print(", \tRamp: "); Serial.print(ramp_len);
 }
-
 
 // Strip date from a time_t (seconds since midnight)
 time_t Time_NoDate(time_t t) {
@@ -329,18 +352,13 @@ time_t Time_NoDate(time_t t) {
 }
 
 // Check the Alarm and adjust the LEDs based on the time
+// Applies a logarithic respnse to give a more linear ramp in apparent brightness
 void CheckAlarm(void) {
   time_t ct = Time_NoDate(now());
   time_t at = Time_NoDate(alarm_time);
   time_t diff = (ct - at) % (24 * 3600);
-
-  //  Serial.print(ct); Serial.print(", \t");
-  //  Serial.print(at); Serial.print(", \t");
-  //  Serial.print(diff); Serial.print(", \t");
-  //  Serial.println(r);
-
+  
   if ((diff >= 0) && (diff <= ramp_len)) {
-    //    r = g = b = round(16383.0 * log((float)diff / (float)ramp_len));
     r = g = b = round(pow(16383., (float)diff / (float)ramp_len)); // try to linearize brigthness
   } else if ((diff >= 0) && (diff <= alarm_len)) {
     r = g = b = 16383;
@@ -349,13 +367,13 @@ void CheckAlarm(void) {
   }
 }
 
-// Save the Alarm Time in the RTC chip
+// Save the Alarm Time in the NVRAM
 // Assumes time_t is 32 bit...
 void SaveAlarm(time_t t) {
   WriteNVRAM32(8, t);
 }
 
-// Retrieve Alarm from RTC
+// Retrieve Alarm from NVRAM
 time_t LoadAlarm(void) {
   time_t t;
   t = ReadNVRAM32(8);
@@ -373,6 +391,3 @@ uint32_t ReadNVRAM32(uint8_t addr) {
   EEPROM.get(addr, r);
   return r;
 }
-
-
-
