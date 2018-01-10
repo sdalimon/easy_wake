@@ -1,4 +1,4 @@
-# easy_wake
+# gentle_wake
 Alarm Clock using LED lights to gradually increase the brightness
 
 This uses the following hardware:
