@@ -9,7 +9,6 @@ This uses the following hardware:
 
 
 TODO:
-- Add buttons to set time or alarams wo/ SUB cable
 - Add colour changing (start with a reddish glow and get bluer as it brightens
-- Add a schematic
+
 
