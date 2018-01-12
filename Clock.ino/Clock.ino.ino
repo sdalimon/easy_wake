@@ -1,5 +1,6 @@
 // Gentle Wake
 // Shawn D'Alimonte
+// 2018-01-11
 
 #include <EEPROM.h>
 #include <Time.h>
@@ -19,8 +20,13 @@ const int R_PIN = 5;       // PWM for Red LEDs HI==LEDs on
 const int G_PIN = 4;	   // PWM for Green LEDs HI==LEDs on
 const int B_PIN = 3;       // PWM for Blue LEDs HI==LEDs on
 const int LED_PIN = 13;    // On Board LED for debug use HI==LED on
+const int TIME_PIN = 14;   // Time button 0==Pressed
+const int ALM_PIN = 15;    // Alarm button 0==Pressed
+const int HOUR_PIN = 16;   // Hour button 0==Pressed
+const int MIN_PIN = 17;   // Minute button 0==Pressed
 
 int r, g, b;  // Current PWM value for LEDs (0-16383)
+int disp_state = 0;  // 0 == Showing time, 1 == showing alarm setting
 
 time_t alarm_time;          // Clock time to start ramp up of LEDs
 time_t ramp_len = 15 * 60;  // Length of ramp up (Default 15 minutes)
@@ -28,19 +34,19 @@ time_t alarm_len = 60 * 60; // How long LEDs stay on (Default 1 hour)
 
 // Setup
 void setup() {
-	// Configure serial port for menu 
+  // Configure serial port for menu
   Serial.begin(9600);
   delay(200);
 
   // I2C for display
   Wire.begin();
 
-  // RTC Setup 
+  // RTC Setup
   // Needs RTC crystal and battery connected as in Teensy documentation
   setSyncProvider(getTeensy3Time);
   setTime(getTeensy3Time());
   setSyncInterval(60);
-  
+
   // Configure pins
   digitalWrite(R_PIN, LOW);
   digitalWrite(G_PIN, LOW);
@@ -51,7 +57,11 @@ void setup() {
   pinMode(B_PIN, OUTPUT);
   pinMode(DEBUG_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
-  
+  pinMode(TIME_PIN, INPUT_PULLUP);
+  pinMode(ALM_PIN, INPUT_PULLUP);
+  pinMode(HOUR_PIN, INPUT_PULLUP);
+  pinMode(MIN_PIN, INPUT_PULLUP);
+
   // Configure PWM
   analogWriteResolution(14);
   analogWriteFrequency(R_PIN, 1464.843);  // Ideal value for 14 bit with 24MHz clock
@@ -76,18 +86,26 @@ void setup() {
 
 // Main Loop
 void loop() {
-  
+
   // Check for data from serial port.  If so receive and parse the charcter
   if (Serial.available() > 0) {
     parseChar();
   }
-  
-  // Update the display and LEDs every 500 ms
+
+  // Check buttons every 500 ms (Avoids debounce...)
+  // CheckButtons() will update time or allarm as needed
+  // Note that display mode is handled in DisplayTime() (Alarm is displayed when ALM is pressed
   if (millis() % 500 == 0) {
+    CheckButtons();
+  }
+
+  // Update the display and LEDs every 100 ms
+  if (millis() % 100 == 0) {
     DisplayTime();
     UpdateLEDS();
     CheckAlarm();
   }
+
 }
 
 // Receive a character from the serial port
@@ -109,7 +127,7 @@ void parseChar(void) {
   }
 }
 
-// Parse a buffer and execute the command 
+// Parse a buffer and execute the command
 void parseBuffer(void) {
   Serial.println();
   if (Buffer.startsWith("set ")) {
@@ -186,16 +204,23 @@ void UpdateLEDS(void) {
   }
 }
 
-// Display the current time on the I2C display
+// Display the current time or alarm settinf on the I2C display based on the state of the alarm switch
 // Blinks the display colon every other second
 void DisplayTime(void) {
   int h10, h, colon, m10, m;
-  h10 = hour() / 10;
-  h = hour() % 10;
-  m10 = minute() / 10;
-  m = minute() % 10;
-  colon = second() % 2;
-
+  if (digitalRead(ALM_PIN) == HIGH) {
+    h10 = hour() / 10;
+    h = hour() % 10;
+    m10 = minute() / 10;
+    m = minute() % 10;
+    colon = second() % 2;
+  } else {
+    h10 = hour(alarm_time) / 10;
+    h = hour(alarm_time) % 10;
+    m10 = minute(alarm_time) / 10;
+    m = minute(alarm_time) % 10;
+    colon = 1;
+  }
   Wire.beginTransmission(DISP_ADDR);
   Wire.write(0x79); Wire.write(0x00); // Move cursor to first character
   Wire.write(h10 == 0 ? ' ' : h10);
@@ -294,7 +319,7 @@ void AlarmSet(String t) {
   Serial.println(t);
 
   tm.Year = 0; // Date is not used for alarm
-  tm.Month = 1
+  tm.Month = 1;
   tm.Day = 1;
   pos = t.indexOf(":");
   tm.Hour = t.substring(0, pos).toInt();
@@ -357,7 +382,7 @@ void CheckAlarm(void) {
   time_t ct = Time_NoDate(now());
   time_t at = Time_NoDate(alarm_time);
   time_t diff = (ct - at) % (24 * 3600);
-  
+
   if ((diff >= 0) && (diff <= ramp_len)) {
     r = g = b = round(pow(16383., (float)diff / (float)ramp_len)); // try to linearize brigthness
   } else if ((diff >= 0) && (diff <= alarm_len)) {
@@ -391,3 +416,44 @@ uint32_t ReadNVRAM32(uint8_t addr) {
   EEPROM.get(addr, r);
   return r;
 }
+
+// UPdate time or alarm based on button state
+// Call every 500 ms
+void CheckButtons() {
+  int val;
+  tmElements_t tm;
+  static int last_alm_button = HIGH;
+  int alm = digitalRead(ALM_PIN);
+  int tim = digitalRead(TIME_PIN);
+  int hr = digitalRead(HOUR_PIN);
+  int mn = digitalRead(MIN_PIN);
+  
+  if (tim == LOW && hr == LOW) { // Increment time hours
+    val = hour();
+    val++;
+    if (val > 23) val = 0;
+    setTime(val, minute(), second(), day(), month(), year());
+  } else if (tim == LOW && mn == LOW) { // Increment time minutes
+    val = minute();
+    val++;
+    if (val > 59) val = 0;
+    setTime(hour(), val, second(), day(), month(), year());
+  } else if (alm == LOW && hr == LOW) { // Increment alarm hours
+    breakTime(alarm_time, tm);
+    tm.Hour++;
+    if (tm.Hour > 23) tm.Hour = 0;
+    alarm_time = makeTime(tm);
+  } else if (alm == LOW && mn == LOW) { // Increment alarm minutes
+    breakTime(alarm_time, tm);
+    tm.Minute++;
+    if (tm.Minute > 59) tm.Minute = 0;
+    alarm_time = makeTime(tm);
+  }
+
+  // Only update alarm in NVRAM when button is released.  This save wear on NVRAM
+  if(last_alm_button == LOW && alm==HIGH) {
+    SaveAlarm(alarm_time);
+  }
+  last_alm_button=alm;
+}
+
