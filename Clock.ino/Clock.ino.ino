@@ -1,5 +1,6 @@
 // Gentle Wake
 // Shawn D'Alimonte
+// 2018-01-11
 
 #include <EEPROM.h>
 
@@ -18,7 +19,8 @@ const int R_PIN = 5;
 const int G_PIN = 4;
 const int B_PIN = 3;
 const int LED_PIN = 13;
-
+const int TIME_BTN = 
+c
 int r, g, b;
 
 time_t alarm_time;
