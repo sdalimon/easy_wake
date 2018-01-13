@@ -503,7 +503,7 @@ void updateButtons(void) {
   if (a - alm_init > TOUCH_SENSE) alm_btn = 1; else alm_btn = 0;
   if (h - hour_init > TOUCH_SENSE) hr_btn = 1; else hr_btn = 0;
   if (m - min_init > TOUCH_SENSE) min_btn = 1; else min_btn = 0;
-  Serial.print(tim_btn);Serial.print(" - ");Serial.print(alm_btn);Serial.print(" - ");Serial.print(hr_btn);Serial.print(" - ");Serial.println(min_btn);
+  //Serial.print(tim_btn);Serial.print(" - ");Serial.print(alm_btn);Serial.print(" - ");Serial.print(hr_btn);Serial.print(" - ");Serial.println(min_btn);
 }
 
 
