@@ -20,13 +20,17 @@ const int R_PIN = 5;       // PWM for Red LEDs HI==LEDs on
 const int G_PIN = 4;	   // PWM for Green LEDs HI==LEDs on
 const int B_PIN = 3;       // PWM for Blue LEDs HI==LEDs on
 const int LED_PIN = 13;    // On Board LED for debug use HI==LED on
-const int TIME_PIN = 14;   // Time button 0==Pressed
-const int ALM_PIN = 15;    // Alarm button 0==Pressed
-const int HOUR_PIN = 16;   // Hour button 0==Pressed
-const int MIN_PIN = 17;   // Minute button 0==Pressed
+const int TIME_PIN = 15;   // Time button 0==Pressed
+const int ALM_PIN = 16;    // Alarm button 0==Pressed
+const int HOUR_PIN = 17;   // Hour button 0==Pressed
+const int MIN_PIN = 23;   // Minute button 0==Pressed
+
+const int TOUCH_SENSE = 500; // Sensitivity of touch sense
 
 int r, g, b;  // Current PWM value for LEDs (0-16383)
 int disp_state = 0;  // 0 == Showing time, 1 == showing alarm setting
+int time_init, alm_init, hour_init, min_init; // Base values for touch sense
+int tim_btn, alm_btn, hr_btn, min_btn;   // Current button status, updated by updateButtons
 
 time_t alarm_time;          // Clock time to start ramp up of LEDs
 time_t ramp_len = 15 * 60;  // Length of ramp up (Default 15 minutes)
@@ -57,11 +61,8 @@ void setup() {
   pinMode(B_PIN, OUTPUT);
   pinMode(DEBUG_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
-  pinMode(TIME_PIN, INPUT_PULLUP);
-  pinMode(ALM_PIN, INPUT_PULLUP);
-  pinMode(HOUR_PIN, INPUT_PULLUP);
-  pinMode(MIN_PIN, INPUT_PULLUP);
-
+  initButtons();
+  
   // Configure PWM
   analogWriteResolution(14);
   analogWriteFrequency(R_PIN, 1464.843);  // Ideal value for 14 bit with 24MHz clock
@@ -101,6 +102,7 @@ void loop() {
 
   // Update the display and LEDs every 100 ms
   if (millis() % 100 == 0) {
+    updateButtons();
     DisplayTime();
     UpdateLEDS();
     CheckAlarm();
@@ -208,7 +210,7 @@ void UpdateLEDS(void) {
 // Blinks the display colon every other second
 void DisplayTime(void) {
   int h10, h, colon, m10, m;
-  if (digitalRead(ALM_PIN) == HIGH) {
+  if (!alm_btn) {
     h10 = hour() / 10;
     h = hour() % 10;
     m10 = minute() / 10;
@@ -423,27 +425,23 @@ void CheckButtons() {
   int val;
   tmElements_t tm;
   static int last_alm_button = HIGH;
-  int alm = digitalRead(ALM_PIN);
-  int tim = digitalRead(TIME_PIN);
-  int hr = digitalRead(HOUR_PIN);
-  int mn = digitalRead(MIN_PIN);
-  
-  if (tim == LOW && hr == LOW) { // Increment time hours
+
+  if (tim_btn && hr_btn) { // Increment time hours
     val = hour();
     val++;
     if (val > 23) val = 0;
     setTime(val, minute(), second(), day(), month(), year());
-  } else if (tim == LOW && mn == LOW) { // Increment time minutes
+  } else if (tim_btn && min_btn) { // Increment time minutes
     val = minute();
     val++;
     if (val > 59) val = 0;
     setTime(hour(), val, second(), day(), month(), year());
-  } else if (alm == LOW && hr == LOW) { // Increment alarm hours
+  } else if (alm_btn && hr_btn) { // Increment alarm hours
     breakTime(alarm_time, tm);
     tm.Hour++;
     if (tm.Hour > 23) tm.Hour = 0;
     alarm_time = makeTime(tm);
-  } else if (alm == LOW && mn == LOW) { // Increment alarm minutes
+  } else if (alm_btn && min_btn) { // Increment alarm minutes
     breakTime(alarm_time, tm);
     tm.Minute++;
     if (tm.Minute > 59) tm.Minute = 0;
@@ -451,9 +449,61 @@ void CheckButtons() {
   }
 
   // Only update alarm in NVRAM when button is released.  This save wear on NVRAM
-  if(last_alm_button == LOW && alm==HIGH) {
+  if (last_alm_button && !alm_btn) {
     SaveAlarm(alarm_time);
   }
-  last_alm_button=alm;
+  last_alm_button = alm_btn;
 }
+
+// Get the base values for the touch sensor and store in the *_int variables
+// Use an average for better results
+void initButtons(void) {
+  int i;
+
+  time_init = 0;
+  alm_init = 0;
+  hour_init = 0;
+  min_init = 0;
+
+  for (i = 0; i < 16; i++) {
+    time_init += touchRead(TIME_PIN);
+    alm_init += touchRead(ALM_PIN);
+    hour_init += touchRead(HOUR_PIN);
+    min_init += touchRead(MIN_PIN);
+  }
+  time_init /= 16;
+  alm_init /= 16;
+  hour_init /= 16;
+  min_init /= 16;
+}
+
+// Read state of touch buttons
+// store result in tim, alm, hr, min
+// 2 if >500 from init value
+void updateButtons(void) {
+  int i;
+
+  int t = 0;
+  int a = 0;
+  int h = 0;
+  int m = 0;
+
+  for (i = 0; i < 16; i++) {
+    t += touchRead(TIME_PIN);
+    a += touchRead(ALM_PIN);
+    h += touchRead(HOUR_PIN);
+    m += touchRead(MIN_PIN);
+  }
+  t /= 16;
+  a /= 16;
+  h /= 16;
+  m /= 16;
+
+  if (t - time_init > TOUCH_SENSE) tim_btn = 1; else tim_btn = 0;
+  if (a - alm_init > TOUCH_SENSE) alm_btn = 1; else alm_btn = 0;
+  if (h - hour_init > TOUCH_SENSE) hr_btn = 1; else hr_btn = 0;
+  if (m - min_init > TOUCH_SENSE) min_btn = 1; else min_btn = 0;
+  Serial.print(tim_btn);Serial.print(" - ");Serial.print(alm_btn);Serial.print(" - ");Serial.print(hr_btn);Serial.print(" - ");Serial.println(min_btn);
+}
+
 
