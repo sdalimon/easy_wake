@@ -62,7 +62,7 @@ void setup() {
   pinMode(DEBUG_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
   initButtons();
-  
+
   // Configure PWM
   analogWriteResolution(14);
   analogWriteFrequency(R_PIN, 1464.843);  // Ideal value for 14 bit with 24MHz clock
@@ -425,17 +425,20 @@ void CheckButtons() {
   int val;
   tmElements_t tm;
   static int last_alm_button = HIGH;
+  static int last_time_button = HIGH;
 
   if (tim_btn && hr_btn) { // Increment time hours
     val = hour();
     val++;
     if (val > 23) val = 0;
     setTime(val, minute(), second(), day(), month(), year());
+    Teensy3Clock.set(now());
   } else if (tim_btn && min_btn) { // Increment time minutes
     val = minute();
     val++;
     if (val > 59) val = 0;
     setTime(hour(), val, second(), day(), month(), year());
+    Teensy3Clock.set(now());
   } else if (alm_btn && hr_btn) { // Increment alarm hours
     breakTime(alarm_time, tm);
     tm.Hour++;
@@ -447,6 +450,12 @@ void CheckButtons() {
     if (tm.Minute > 59) tm.Minute = 0;
     alarm_time = makeTime(tm);
   }
+
+  // Save time to RTC when button is released
+  if (last_time_button && !tim_btn) {
+
+  }
+  last_time_button = tim_btn;
 
   // Only update alarm in NVRAM when button is released.  This save wear on NVRAM
   if (last_alm_button && !alm_btn) {
