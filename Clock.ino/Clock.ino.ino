@@ -25,7 +25,7 @@ const int ALM_PIN = 16;    // Alarm button 0==Pressed
 const int HOUR_PIN = 17;   // Hour button 0==Pressed
 const int MIN_PIN = 23;   // Minute button 0==Pressed
 
-const int TOUCH_SENSE = 500; // Sensitivity of touch sense
+const int TOUCH_SENSE = 300; // Sensitivity of touch sense
 
 int r, g, b;  // Current PWM value for LEDs (0-16383)
 int disp_state = 0;  // 0 == Showing time, 1 == showing alarm setting
